@@ -110,7 +110,7 @@ if (!(Get-AzResourceGroup -Name $rg -Location $location -ErrorAction SilentlyCon
 # Create Log Analytics Workspace (law)
 if ([string]::IsNullOrEmpty($lawWorkspaceName) -or [string]::IsNullOrEmpty($lawWorkspaceRg)) {
     Write-Host "Log Analytics Workspace not defined. Creating or retrieving previously built one..." -ForegroundColor Cyan
-    if (!(Get-AzOperationalInsightsWorkspace -Name "law-$customerName-$environ" -ResourceGroupName $rg -ErrorAction Stop)) {
+    if (!(Get-AzOperationalInsightsWorkspace -Name "law-$customerName-$environ" -ResourceGroupName $rg -ErrorAction SilentlyContinue)) {
         $lawWorkspace = New-AzOperationalInsightsWorkspace -ResourceGroupName $rg -Location $location -Sku pergb2018 -Name "law-$customerName-$environ" 
         $lawWorkspace.Name
     } else {
