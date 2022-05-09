@@ -90,6 +90,11 @@ if ($environ -eq 'prd'){
 # VNet Variables
 $vnetAddressPrefix = "10.6.0.0/16"                                  # This can be changed to suit your IPAM needs. If not Class A -- 10.x.x.x, make sure to change the split command in the VNET section below 
 
+# Internal Load Balancer Variables (ILB)
+$ilbSku = 'Basic'
+if ($environ -eq 'prd'){
+    $ilbSku = "Standard"
+}
 
 # Cert Variables for AuthN to the Managed Service Fabric Cluster (SFC)
 $fqdn = "$clusterName.$location.cloudapp.azure.com"
@@ -390,7 +395,17 @@ if ($sfDeploy.ProvisioningState -ne "Succeeded")  { Write-Host "Service Fabric F
         Break
 } elseif (!(get-azloadbalancer -ResourceGroupName $rg -Name "ilb-$customerName-$environ" -ErrorAction SilentlyContinue) -or !(get-azloadbalancer -ResourceGroupName $rg -Name "ilb-$customerName-$environ" -ErrorAction SilentlyContinue).LoadBalancingRules) {
     Write-Host "Now Deploying Internal Load Balancer for Managed Service Fabric VMSS to communicate out to Mongo" -ForegroundColor Green
-    $ilbDeploy = New-AzResourceGroupDeployment -Name "ilb-$clusterName-deploy" -Mode Incremental -ResourceGroupName $rg -TemplateFile ".\ilb\ilb.bicep" -subnetId $subnetId.Id -customerName $customerName -location $location -env $environ -privIPAddress $privIPAddress -subId $subId -mgdSfcClusterRg $mgdSfcClusterRg.ResourceGroupName -ntName $ntName -clusterName $clusterName -dataDiskStoSku (Get-AzServiceFabricManagedNodeType -ClusterName (Get-AzServiceFabricManagedCluster -ResourceGroupName $rg).DnsName -ResourceGroupName $rg).DataDiskType -ErrorAction Stop
+    $ilbDeploy = New-AzResourceGroupDeployment -Name "ilb-$clusterName-deploy" -Mode Incremental -ResourceGroupName $rg -TemplateFile ".\ilb\ilb.bicep" 
+    -subnetId $subnetId.Id `
+    -customerName $customerName `
+    -location $location `
+    -env $environ `
+    -privIPAddress $privIPAddress `
+    -subId $subId  `
+    -mgdSfcClusterRg $mgdSfcClusterRg.ResourceGroupName `
+    -ntName $ntName -clusterName $clusterName `
+    -ilbSku $ilbSku `
+    -dataDiskStoSku (Get-AzServiceFabricManagedNodeType -ClusterName (Get-AzServiceFabricManagedCluster -ResourceGroupName $rg).DnsName -ResourceGroupName $rg).DataDiskType -ErrorAction Stop
 
     Write-Host $ilbDeploy.Outputs.Keys $ilbDeploy.ProvisioningState "at" $ilbDeploy.Timestamp -ForegroundColor Green
 } else {

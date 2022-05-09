@@ -8,9 +8,10 @@ param mgdSfcClusterRg string
 param env string
 param clusterName string
 
-// var adminUsername ='${customerName}azureadmin'
-// param computerNamePrefix string = 'pai'
-// param dataDiskStoSku string
+
+var adminUsername ='${customerName}azadmin'
+param computerNamePrefix string = 'pai'
+param dataDiskStoSku string
 
 resource patstNT1 'Microsoft.Compute/virtualMachineScaleSets@2020-12-01' = {
   name: ntName
