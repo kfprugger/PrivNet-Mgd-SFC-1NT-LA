@@ -153,7 +153,7 @@ resource paicluster 'Microsoft.ServiceFabric/managedClusters@2022-01-01' = {
         name: 'ApiPinHole'
         protocol: 'tcp'
         sourcePortRange: '*'
-        sourceAddressPrefix: 'Internet'
+        sourceAddressPrefix: '10.0.0.0/8'
         destinationAddressPrefix: '*'
         destinationPortRange: '8168'
         priority: 1000
