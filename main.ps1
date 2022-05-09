@@ -79,6 +79,13 @@ $clusterName = "msf-"+$customerName+"-"+$environ+"-01"
 $publicIp = (Invoke-WebRequest ifconfig.me/ip).Content.Trim() 
 # $logStoAcct = "salog"+$customerName+$environ+$(get-random -Minimum 01 -Maximum 99)
 # $appLogStoAcct = "saailog"+$customerName+$environ+$(get-random -Minimum 01 -Maximum 99)
+$numClusterNodes = 3
+$clusterSku = 'Basic'
+
+if ($environ -eq 'prd'){
+    $numClusterNodes = 5
+    $clusterSku = "Standard"
+}
 
 # VNet Variables
 $vnetAddressPrefix = "10.6.0.0/16"                                  # This can be changed to suit your IPAM needs. If not Class A -- 10.x.x.x, make sure to change the split command in the VNET section below 
@@ -91,7 +98,8 @@ $fqdn = "$clusterName.$location.cloudapp.azure.com"
 
 ## Cert Variables config: this is the master password that we use to encrypt all of certificates. You can hardcode this if you'd like to use your own password. Make sure it's in "quotes" as a string
 $Password = (Get-AzKeyVaultSecret -VaultName $mgmtAkv -Name $certPassphraseAkvSecret -AsPlainText)
-$KeyVaultCertName = $clusterName+"-cert"
+$KeyVaultCertName = "$clusterName-cert"
+$akvCertSecret = "$KeyVaultCertName-secret"
 $SecurePassword = ConvertTo-SecureString -String $Password -AsPlainText -Force
 $CertDir = "$HOME\certs"
 $CertFileFullPath = "$certdir\$fqdn.pfx"
@@ -113,19 +121,27 @@ if ([string]::IsNullOrEmpty($lawWorkspaceName) -or [string]::IsNullOrEmpty($lawW
     if (!(Get-AzOperationalInsightsWorkspace -Name "law-$customerName-$environ" -ResourceGroupName $rg -ErrorAction SilentlyContinue)) {
         $lawWorkspace = New-AzOperationalInsightsWorkspace -ResourceGroupName $rg -Location $location -Sku pergb2018 -Name "law-$customerName-$environ" 
         $lawWorkspace.Name
+        $lawWorkspaceId = $lawWorkspace.CustomerId
+        
     } else {
         Write-Host 
         $lawWorkspace = Get-AzOperationalInsightsWorkspace -Name "law-$customerName-$environ" -ResourceGroupName $rg -ErrorAction Stop
         $lawWorkspace.Name
+        
+        
     }
-    $lawWorkspaceId = $lawWorkspace.CustomerId
-    $lawWorkspaceKey = ($lawWorkspace | Get-AzOperationalInsightsWorkspaceSharedKeys -ErrorAction Stop).SecondarySharedKey 
     
+    $lawWorkspaceKey = ($lawWorkspace | Get-AzOperationalInsightsWorkspaceSharedKeys -ErrorAction Stop).SecondarySharedKey 
+    $lawWorkspaceId = $lawWorkspace.CustomerId
+    $lawWorkspaceResId = $lawWorkspace.ResourceId
+    
+
 } else {
     write-host "Log Analytics Workspace exists. Moving on..." -ForegroundColor Cyan
     $lawWorkspaceId = (Get-AzOperationalInsightsWorkspace -ResourceGroupName $lawWorkspaceRg -Name $lawWorkspaceName -ErrorAction Stop).CustomerId
     $lawWorkspaceKey = (Get-AzOperationalInsightsWorkspaceSharedKeys -ResourceGroupName $lawWorkspaceRg -Name $lawWorkspaceName -ErrorAction Stop ).SecondarySharedKey
     $lawWorkspace = Get-AzOperationalInsightsWorkspace -ResourceGroupName $lawWorkspaceRg -Name $lawWorkspaceName
+    Write-Host "Existing LAWS customer ID is: $lawWorkspaceId"
 }
  
 # Create Virtual Network (VNET) 
@@ -213,14 +229,14 @@ if (!(test-path $CertFileFullPath) -and !(Get-AzKeyVaultCertificate -VaultName $
     $Content = [System.Convert]::ToBase64String($ContentBytes)
 
     $SecretValue = ConvertTo-SecureString -String $Content -AsPlainText -Force
-    $NewSecret = Set-AzKeyVaultSecret -VaultName $akvName -Name $KeyVaultCertName -SecretValue $SecretValue -Verbose
+    $NewSecret = Set-AzKeyVaultSecret -VaultName $akvName -Name $akvCertSecret -SecretValue $SecretValue 
 
     Write-Host
     Write-Host "Source Vault Resource Id: "$(Get-AzKeyVault -VaultName $akvName).ResourceId
     Write-Host "Certificate Secret URL : "$NewSecret.Id
     Write-Host "Certificate Thumbprint : "$NewCert.Thumbprint
 
-    $akvcert = Import-AzKeyVaultCertificate -VaultName $akvName -Name "$clusterName-cert" -Password $SecurePassword -FilePath $CertFileFullPath
+    $akvcert = Import-AzKeyVaultCertificate -VaultName $akvName -Name $KeyVaultCertName -Password $SecurePassword -FilePath $CertFileFullPath
     Write-Host "Certificate Uploaded to :"$akvcert.VaultName " as "$akvcert.Name
 
 
@@ -263,10 +279,9 @@ if (!(test-path $CertFileFullPath) -and !(Get-AzKeyVaultCertificate -VaultName $
     
     }  elseif ((test-path $CertFileFullPath) -and !(Get-AzKeyVaultCertificate -VaultName $akvName -Name $KeyVaultCertName -ErrorAction SilentlyContinue) ) {
         $akvName
-        $SecurePassword
         $CertFileFullPath
         $clusterName
-        $akvcert = Import-AzKeyVaultCertificate -VaultName $akvName -Name "$clusterName-cert" -Password $SecurePassword -FilePath $CertFileFullPath 
+        $akvcert = Import-AzKeyVaultCertificate -VaultName $akvName -Name $KeyVaultCertName -Password $SecurePassword -FilePath $CertFileFullPath -ErrorAction Stop
         Write-Host "Certificate Uploaded to :"$akvcert.VaultName " as "$akvcert.Name
         $thumb = (Get-AzKeyVaultCertificate -VaultName $akvName -Name $clusterName-cert).Thumbprint 
     } else {
@@ -287,7 +302,7 @@ Write-Host "Service Fabric update/initiation deployment commencing..." -Foregrou
 Write-Host "Checking for Cluster Administrator Password..."
 if (Get-AzKeyVaultSecret -VaultName $mgmtAkv -Name $clusterAdminUsername) {
     $clusterAdminPassword = (Get-AzKeyVaultSecret -VaultName $mgmtAkv -Name $clusterAdminUsername).SecretValue
-    Write-Host "Retrieved Cluster Admin Password from" $mgmtAkv ". Moving on..." -ForegroundColor Cyan
+    Write-Host "Retrieved Cluster Admin Password from " $mgmtAkv ". Moving on..." -ForegroundColor Cyan
     $clusterAdminPasswordOutput = "Retrieved Cluster Admin Password from" +$mgmtAkv 
 } else {
     $chars = "abcdefghijkmnopqrstuvwxyzABCEFGHJKLMNPQRSTUVWXYZ23456789!#%&?".ToCharArray()
@@ -312,11 +327,49 @@ if (!(Get-Module Az.ServiceFabric)){
 
 write-host "thumbprint is: " $thumb
 if (!(Get-AzServiceFabricManagedCluster -ResourceGroupName $rg -Name $clusterName -ErrorAction SilentlyContinue))  {
-    $sfDeploy = New-AzResourceGroupDeployment -Name "sf-$clusterName-deploy" -Mode Incremental -ResourceGroupName $rg -TemplateFile  ".\sf\sfmanaged.bicep" -thumb $thumb  -env $environ -subnetId $subnetId.Id -customerName $customerName -location $location -clusterSku "Basic"   -lawWorkspaceId $lawWorkspaceId -lawWorkspaceKey $lawWorkspaceKey -clusterName $clusterName -publicIp $publicIp -adminUserName $clusterAdminUsername -adminPassword $clusterAdminPassword -subscriptionSFRPId $sfcSPN.Id -lawWorkspaceResId $lawWorkspace.ResourceId -ErrorAction Stop -Verbose # -logStoAcct $logStoAcct -appLogStoAcct $appLogStoAcct -subId $subId for later impl.
+    Write-Host "New-New Service Fabric Deployment Commencing..."
+    $sfDeploy = New-AzResourceGroupDeployment -Name "sf-$clusterName-deploy" -Mode Incremental -ResourceGroupName $rg `
+    -TemplateFile  ".\sf\sfmanaged.bicep" `
+    -thumb $thumb  `
+    -env $environ `
+    -subnetId $subnetId.Id `
+    -customerName $customerName `
+    -location $location `
+    -lawWorkspaceId $lawWorkspaceId `
+    -lawWorkspaceKey $lawWorkspaceKey `
+    -clusterName $clusterName `
+    -publicIp $publicIp `
+    -adminUserName $clusterAdminUsername `
+    -adminPassword $clusterAdminPassword `
+    -subscriptionSFRPId $sfcSPN.Id `
+    -lawWorkspaceResId $lawWorkspaceResId `
+    -clusterSku $clusterSku `
+    -numClusterNodes $numClusterNodes `
+    -ErrorAction Stop `
+    -Verbose # -logStoAcct $logStoAcct -appLogStoAcct $appLogStoAcct -subId $subId for later impl.
 
     write-host $sfDeploy.ProvisioningState " at " $sfDeploy.Timestamp
 } elseif ((Get-AzResourceGroupDeployment  -ResourceGroupName $rg -Name "sf-$clusterName-deploy").ProvisioningState -ne "Succeeded")  {
-    $sfDeploy = New-AzResourceGroupDeployment -Name "sf-$clusterName-deploy" -Mode Incremental -ResourceGroupName $rg -TemplateFile  ".\sf\sfmanaged.bicep" -thumb $thumb  -env $environ -subnetId $subnetId.Id -customerName $customerName -location $location -clusterSku "Basic"   -lawWorkspaceId $lawWorkspaceId -lawWorkspaceKey $lawWorkspaceKey -clusterName $clusterName -publicIp $publicIp -adminUserName $clusterAdminUsername -adminPassword $clusterAdminPassword -subscriptionSFRPId $sfcSPN.Id -lawWorkspaceResId $lawWorkspace.ResourceId -ErrorAction Stop -Verbose # -logStoAcct $logStoAcct -appLogStoAcct $appLogStoAcct -subId $subId for later impl.
+    Write-Host "Previously failed Managed Service Fabric attempt detected. Redeploying..."
+    $sfDeploy = New-AzResourceGroupDeployment -Name "sf-$clusterName-deploy" -Mode Incremental -ResourceGroupName $rg `
+    -TemplateFile  ".\sf\sfmanaged.bicep" `
+    -thumb $thumb  `
+    -env $environ `
+    -subnetId $subnetId.Id `
+    -customerName $customerName `
+    -location $location `
+    -lawWorkspaceId $lawWorkspaceId `
+    -lawWorkspaceKey $lawWorkspaceKey `
+    -clusterName $clusterName `
+    -publicIp $publicIp `
+    -adminUserName $clusterAdminUsername `
+    -adminPassword $clusterAdminPassword `
+    -subscriptionSFRPId $sfcSPN.Id `
+    -lawWorkspaceResId $lawWorkspace.ResourceId `
+    -clusterSku $clusterSku `
+    -numClusterNodes $numClusterNodes `
+    -ErrorAction Stop `
+    -Verbose
 } else {
     $sfDeploy = (Get-AzResourceGroupDeployment  -ResourceGroupName $rg -Name "sf-$clusterName-deploy")
 }
@@ -337,7 +390,7 @@ if ($sfDeploy.ProvisioningState -ne "Succeeded")  { Write-Host "Service Fabric F
         Break
 } elseif (!(get-azloadbalancer -ResourceGroupName $rg -Name "ilb-$customerName-$environ" -ErrorAction SilentlyContinue) -or !(get-azloadbalancer -ResourceGroupName $rg -Name "ilb-$customerName-$environ" -ErrorAction SilentlyContinue).LoadBalancingRules) {
     Write-Host "Now Deploying Internal Load Balancer for Managed Service Fabric VMSS to communicate out to Mongo" -ForegroundColor Green
-    $ilbDeploy = New-AzResourceGroupDeployment -Name "ilb-$clusterName-deploy" -Mode Incremental -ResourceGroupName $rg -TemplateFile ".\ilb\ilb-$environ.bicep" -subnetId $subnetId.Id -customerName $customerName -location $location -env $environ -privIPAddress $privIPAddress -subId $subId -mgdSfcClusterRg $mgdSfcClusterRg.ResourceGroupName -ntName $ntName -clusterName $clusterName -dataDiskStoSku (Get-AzServiceFabricManagedNodeType -ClusterName (Get-AzServiceFabricManagedCluster -ResourceGroupName $rg).DnsName -ResourceGroupName $rg).DataDiskType
+    $ilbDeploy = New-AzResourceGroupDeployment -Name "ilb-$clusterName-deploy" -Mode Incremental -ResourceGroupName $rg -TemplateFile ".\ilb\ilb.bicep" -subnetId $subnetId.Id -customerName $customerName -location $location -env $environ -privIPAddress $privIPAddress -subId $subId -mgdSfcClusterRg $mgdSfcClusterRg.ResourceGroupName -ntName $ntName -clusterName $clusterName -dataDiskStoSku (Get-AzServiceFabricManagedNodeType -ClusterName (Get-AzServiceFabricManagedCluster -ResourceGroupName $rg).DnsName -ResourceGroupName $rg).DataDiskType -ErrorAction Stop
 
     Write-Host $ilbDeploy.Outputs.Keys $ilbDeploy.ProvisioningState "at" $ilbDeploy.Timestamp -ForegroundColor Green
 } else {
