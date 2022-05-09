@@ -1,8 +1,8 @@
 # Monitored Service Fabric Private Networking Solution
-Hello! I was recently challenged to create a private networking solution for Azure Service Fabric. I’m more of a Kubernetes dude, so Service Fabric (SFC) looked like a challenge.
+Hello! I was recently challenged to create a private networking solution for Azure Service Fabric. I’m more of a Kubernetes dude, so Service Fabric (SFC) looked like a great challenge.
 First, I wanted to see if there was a managed solution rather than the [old school deployment](https://docs.microsoft.com/en-us/azure/service-fabric/service-fabric-overview) of load balancers, public Ips, NSGs, etc. individually. It turns out, there is! [Managed SFC](https://docs.microsoft.com/en-us/azure/service-fabric/overview-managed-cluster) if a newish offering in Azure that deploys all the infrastructure needed for a SFC cluster into a managed subnet without needing to fool with individual components. Yay! 
 
-So, now on to the task of deploying Managed SFC! In the diagram below, you'll find how I securely deploy my service fabric cluster by using the following ancillary Azure components: 
+So, now on to the task of deploying Managed SFC (MSFC)! In the diagram below, you'll find how I securely deploy my service fabric cluster by using the following ancillary Azure components: 
 
 - [Azure Key Vault](https://docs.microsoft.com/en-us/azure/key-vault/)
     - In my script, I reference a management Key Vault that I use for my [certificate password](https://www.sslmarket.com/ssl/how-to-create-an-pfx-file) AND the Managed SFC cluster password. The management Azure Key Vault references are outlined in the comments and parameters.

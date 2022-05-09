@@ -10,9 +10,9 @@ param lawWorkspaceKey string
 param adminPassword string 
 
 param adminUserName string 
-param userAssignedIdentity string 
+param userAssignedIdentity string = 'uai-msfc-id'
 @description('https://docs.microsoft.com/azure/role-based-access-control/role-definitions-list \'Managed Identity Operator\' read and assign')
-param roleDefinitionId string 
+param roleDefinitionId string = 'f1a07417-d97a-45cb-824c-7a7467783830' // Managed Identity Operator
 
 @description('generate guid one time and reuse for same assignment: [guid]::NewGuid() ')
 param roleAssignmentId string = newGuid()

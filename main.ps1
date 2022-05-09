@@ -120,6 +120,7 @@ if ([string]::IsNullOrEmpty($lawWorkspaceName) -or [string]::IsNullOrEmpty($lawW
     }
     $lawWorkspaceId = $lawWorkspace.CustomerId
     $lawWorkspaceKey = ($lawWorkspace | Get-AzOperationalInsightsWorkspaceSharedKeys -ErrorAction Stop).SecondarySharedKey 
+    
 } else {
     write-host "Log Analytics Workspace exists. Moving on..." -ForegroundColor Cyan
     $lawWorkspaceId = (Get-AzOperationalInsightsWorkspace -ResourceGroupName $lawWorkspaceRg -Name $lawWorkspaceName -ErrorAction Stop).CustomerId
@@ -260,7 +261,15 @@ if (!(test-path $CertFileFullPath) -and !(Get-AzKeyVaultCertificate -VaultName $
     $thumb = (Get-ChildItem Cert:\CurrentUser\My | Where-Object {$_.subject -eq "CN=$fqdn"}).Thumbprint
     
     
-    }  else {
+    }  elseif ((test-path $CertFileFullPath) -and !(Get-AzKeyVaultCertificate -VaultName $akvName -Name $KeyVaultCertName -ErrorAction SilentlyContinue) ) {
+        $akvName
+        $SecurePassword
+        $CertFileFullPath
+        $clusterName
+        $akvcert = Import-AzKeyVaultCertificate -VaultName $akvName -Name "$clusterName-cert" -Password $SecurePassword -FilePath $CertFileFullPath 
+        Write-Host "Certificate Uploaded to :"$akvcert.VaultName " as "$akvcert.Name
+        $thumb = (Get-AzKeyVaultCertificate -VaultName $akvName -Name $clusterName-cert).Thumbprint 
+    } else {
         Write-Host "Both local cert store and AKV are present for AuthN. Now getting the certificate thumbprint for SF deployment authentication..." -ForegroundColor Cyan
         $thumb = (Get-AzKeyVaultCertificate -VaultName $akvName -Name $clusterName-cert).Thumbprint
     }  
@@ -301,10 +310,13 @@ if (!(Get-Module Az.ServiceFabric)){
     Import-Module Az.ServiceFabric 
 }
 
+write-host "thumbprint is: " $thumb
 if (!(Get-AzServiceFabricManagedCluster -ResourceGroupName $rg -Name $clusterName -ErrorAction SilentlyContinue))  {
-    $sfDeploy = New-AzResourceGroupDeployment -Name "sf-$clusterName-deploy" -Mode Incremental -ResourceGroupName $rg -TemplateFile  ".\sf\sfmanaged-$environ.bicep" -thumb $thumb  -env $environ -subnetId $subnetId.Id -customerName $customerName -location $location -clusterSku "Basic"   -lawWorkspaceId $lawWorkspaceId -lawWorkspaceKey $lawWorkspaceKey -clusterName $clusterName -publicIp $publicIp -adminUserName $clusterAdminUsername -adminPassword $clusterAdminPassword -ErrorAction Stop -Verbose # -logStoAcct $logStoAcct -appLogStoAcct $appLogStoAcct -subId $subId for later impl.
+    $sfDeploy = New-AzResourceGroupDeployment -Name "sf-$clusterName-deploy" -Mode Incremental -ResourceGroupName $rg -TemplateFile  ".\sf\sfmanaged.bicep" -thumb $thumb  -env $environ -subnetId $subnetId.Id -customerName $customerName -location $location -clusterSku "Basic"   -lawWorkspaceId $lawWorkspaceId -lawWorkspaceKey $lawWorkspaceKey -clusterName $clusterName -publicIp $publicIp -adminUserName $clusterAdminUsername -adminPassword $clusterAdminPassword -subscriptionSFRPId $sfcSPN.Id -lawWorkspaceResId $lawWorkspace.ResourceId -ErrorAction Stop -Verbose # -logStoAcct $logStoAcct -appLogStoAcct $appLogStoAcct -subId $subId for later impl.
 
     write-host $sfDeploy.ProvisioningState " at " $sfDeploy.Timestamp
+} elseif ((Get-AzResourceGroupDeployment  -ResourceGroupName $rg -Name "sf-$clusterName-deploy").ProvisioningState -ne "Succeeded")  {
+    $sfDeploy = New-AzResourceGroupDeployment -Name "sf-$clusterName-deploy" -Mode Incremental -ResourceGroupName $rg -TemplateFile  ".\sf\sfmanaged.bicep" -thumb $thumb  -env $environ -subnetId $subnetId.Id -customerName $customerName -location $location -clusterSku "Basic"   -lawWorkspaceId $lawWorkspaceId -lawWorkspaceKey $lawWorkspaceKey -clusterName $clusterName -publicIp $publicIp -adminUserName $clusterAdminUsername -adminPassword $clusterAdminPassword -subscriptionSFRPId $sfcSPN.Id -lawWorkspaceResId $lawWorkspace.ResourceId -ErrorAction Stop -Verbose # -logStoAcct $logStoAcct -appLogStoAcct $appLogStoAcct -subId $subId for later impl.
 } else {
     $sfDeploy = (Get-AzResourceGroupDeployment  -ResourceGroupName $rg -Name "sf-$clusterName-deploy")
 }
