@@ -332,7 +332,7 @@ if (!(Get-Module Az.ServiceFabric)){
 
 write-host "thumbprint is: " $thumb
 if (!(Get-AzServiceFabricManagedCluster -ResourceGroupName $rg -Name $clusterName -ErrorAction SilentlyContinue))  {
-    Write-Host "New-New Service Fabric Deployment Commencing..."
+    Write-Host "Net-New Service Fabric Deployment Commencing..."
     $sfDeploy = New-AzResourceGroupDeployment -Name "sf-$clusterName-deploy" -Mode Incremental -ResourceGroupName $rg `
     -TemplateFile  ".\sf\sfmanaged.bicep" `
     -thumb $thumb  `
@@ -395,7 +395,7 @@ if ($sfDeploy.ProvisioningState -ne "Succeeded")  { Write-Host "Service Fabric F
         Break
 } elseif (!(get-azloadbalancer -ResourceGroupName $rg -Name "ilb-$customerName-$environ" -ErrorAction SilentlyContinue) -or !(get-azloadbalancer -ResourceGroupName $rg -Name "ilb-$customerName-$environ" -ErrorAction SilentlyContinue).LoadBalancingRules) {
     Write-Host "Now Deploying Internal Load Balancer for Managed Service Fabric VMSS to communicate out to Mongo" -ForegroundColor Green
-    $ilbDeploy = New-AzResourceGroupDeployment -Name "ilb-$clusterName-deploy" -Mode Incremental -ResourceGroupName $rg -TemplateFile ".\ilb\ilb.bicep" 
+    $ilbDeploy = New-AzResourceGroupDeployment -Name "ilb-$clusterName-deploy" -Mode Incremental ` -ResourceGroupName $rg -TemplateFile ".\ilb\ilb.bicep" `
     -subnetId $subnetId.Id `
     -customerName $customerName `
     -location $location `
