@@ -23,10 +23,6 @@ param (
     [ValidateLength(3,3)]
     [string]$customerName,                                  # Must be 3 character abbreviation
 
-    [Parameter(HelpMessage="Specify an existing Log Analytics Workspace. A new one is created if not defined.")]
-    [string]$lawWorkspaceName,
-    [Parameter(HelpMessage="Specify the Resource Group for the existing Log Analytics Workspace. A new one is created if not defined.")]
-    [string]$lawWorkspaceRg,
 
     [Parameter(Mandatory, HelpMessage="Specify the admin group's display name for the resources")]
     [ValidateNotNullOrEmpty()]
@@ -40,7 +36,11 @@ param (
     [string]$mgmtAkv,
     [Parameter(Mandatory, HelpMessage="Specify the AKV secret name that corresponds to clusteradmin username.")]
     [ValidateNotNullOrEmpty()]
-    [string]$clusterAdminUsername                                                
+    [string]$clusterAdminUsername,    
+    [Parameter(HelpMessage="Specify an existing Log Analytics Workspace. A new one is created if not defined.")]
+    [string]$lawWorkspaceName,
+    [Parameter(HelpMessage="Specify the Resource Group for the existing Log Analytics Workspace. A new one is created if not defined.")]
+    [string]$lawWorkspaceRg                                            
 
 )
 
@@ -88,7 +88,7 @@ if ($environ -eq 'prd'){
 }
 
 # VNet Variables
-$vnetAddressPrefix = "10.6.0.0/16"                                  # This can be changed to suit your IPAM needs. If not Class A -- 10.x.x.x, make sure to change the split command in the VNET section below 
+$vnetAddressPrefix = "10.5.0.0/16"                                  # This can be changed to suit your IPAM needs. If not Class A -- 10.x.x.x, make sure to change the split command in the VNET section below 
 
 # Internal Load Balancer Variables (ILB)
 $ilbSku = 'Basic'
@@ -146,7 +146,9 @@ if ([string]::IsNullOrEmpty($lawWorkspaceName) -or [string]::IsNullOrEmpty($lawW
     $lawWorkspaceId = (Get-AzOperationalInsightsWorkspace -ResourceGroupName $lawWorkspaceRg -Name $lawWorkspaceName -ErrorAction Stop).CustomerId
     $lawWorkspaceKey = (Get-AzOperationalInsightsWorkspaceSharedKeys -ResourceGroupName $lawWorkspaceRg -Name $lawWorkspaceName -ErrorAction Stop ).SecondarySharedKey
     $lawWorkspace = Get-AzOperationalInsightsWorkspace -ResourceGroupName $lawWorkspaceRg -Name $lawWorkspaceName
+    $lawWorkspaceResId = $lawWorkspace.ResourceId
     Write-Host "Existing LAWS customer ID is: $lawWorkspaceId"
+    
 }
  
 # Create Virtual Network (VNET) 
@@ -155,7 +157,7 @@ if (!(Get-AzVirtualNetwork -ResourceGroupName $rg -Name "vnt-$customerName-sfc-$
     $client4SfcSubnet = New-AzVirtualNetworkSubnetConfig -Name "snt-sfc-clients-$environ-01" -AddressPrefix (($($vnetAddressPrefix -split "\.")[0..1] -join ".") + '.1.0/24')
     $vnet = New-AzVirtualNetwork -ResourceGroupName $rg -Name "vnt-$customerName-sfc-$environ" -Location $location -AddressPrefix $vnetAddressPrefix -Subnet $sfcSubnet,$client4SfcSubnet
     Write-Host [$vnet.Name "has been created with the following subnets" $vnet.SubnetsText] -ForegroundColor Cyan
-    Start-Sleep 30
+    Start-Sleep 15
 } else {
     $vnet = Get-AzVirtualNetwork -ResourceGroupName $rg -Name "vnt-$customerName-sfc-$environ"
     $subs2write = ($vnet | Get-AzVirtualNetworkSubnetConfig | Select-Object Name, AddressPrefix)
@@ -175,10 +177,10 @@ write-host "Added " $sfcSPN.DisplayName " to " $vnet.Name " inside " $vnet.Resou
     write-host $sfcSPN.DisplayName "is already a Network Contributor on" $vnet.Name "in RG: " $vnet.ResourceGroupName -ForegroundColor Cyan
 }
 $subnetId = $vnet | Get-AzVirtualNetworkSubnetConfig -Name "snt-sfc-$environ-01"
-Start-Sleep 15
+Start-Sleep 5
 
 # Create Azure Key Vault (AKV)
-if (!(Get-AzKeyVault -VaultName $akvName)){
+if (!(Get-AzKeyVault -VaultName $akvName -ResourceGroupName $rg)){
     Write-Host "Building Azure Key Vault..." -ForegroundColor Green
     $akvDeploy = New-AzResourceGroupDeployment -Name "akv-deploy" -ResourceGroupName $rg -Mode Incremental -TemplateFile .\akv\akv.bicep -akvName $akvName -location $location -subId $subId -tenantId $tenantId -admingrpId $adminGrpId -ErrorAction Stop
     Start-Sleep 30
@@ -189,8 +191,8 @@ if (!(Get-AzKeyVault -VaultName $akvName)){
 
     
 ## Ensure Admin Group Has Proper Rights
-if ( (!(get-azroleassignment -ObjectId $adminGrpId -RoleDefinitionName "Key Vault Secrets Officer" -Scope (Get-AzKeyVault -VaultName $akvName).ResourceId)) -or 
-    (!(get-azroleassignment -ObjectId $adminGrpId -RoleDefinitionName "Key Vault Certificates Officer" -Scope (Get-AzKeyVault -VaultName $akvName).ResourceId)))
+if ( (!(get-azroleassignment -ObjectId $adminGrpId -RoleDefinitionName "Key Vault Secrets Officer" -Scope (Get-AzKeyVault -VaultName $akvName -ResourceGroupName $rg).ResourceId)) -or 
+    (!(get-azroleassignment -ObjectId $adminGrpId -RoleDefinitionName "Key Vault Certificates Officer" -Scope (Get-AzKeyVault -VaultName $akvName -ResourceGroupName $rg).ResourceId)))
     {
     Write-Host "Updating AKV Permissions..." -ForegroundColor Green 
     $akvDeploy = New-AzResourceGroupDeployment -Name "akv-deploy" -ResourceGroupName $rg -Mode Incremental -TemplateFile .\akv\akv.bicep -akvName $akvName -location $location -subId $subId -tenantId $tenantId -admingrpId $adminGrpId -ErrorAction Stop
@@ -313,12 +315,16 @@ if (Get-AzKeyVaultSecret -VaultName $mgmtAkv -Name $clusterAdminUsername) {
     $chars = "abcdefghijkmnopqrstuvwxyzABCEFGHJKLMNPQRSTUVWXYZ23456789!#%&?".ToCharArray()
     $clusterAdminPassword = ""
     1..10 | ForEach-Object {  $clusterAdminPassword += $chars | Get-Random }
-    $clusterAdminPassword | ConvertTo-SecureString
+    
     $clusterAdminPasswordOutput = $clusterAdminPassword
     Write-Host "Created Cluster Admin and deposited secret into " $akvName " as " $clusterAdminUsername". Moving on..." -ForegroundColor Cyan
+    $clusterAdminPassword = (ConvertTo-SecureString -string $clusterAdminPassword -AsPlainText -Force)
+    Set-AzKeyVaultSecret -Name $clusterAdminUsername -SecretValue $clusterAdminPassword -VaultName $mgmtAkv
+    
+    
 } 
 
-ConvertFrom-SecureString $clusterAdminPassword
+
 
 # We're going to connect to the cluster we will build out. First, we'll check to see if you have the SFC module installed. Then install it if not.
 if (!(Get-Module Az.ServiceFabric)){
@@ -334,7 +340,7 @@ write-host "thumbprint is: " $thumb
 if (!(Get-AzServiceFabricManagedCluster -ResourceGroupName $rg -Name $clusterName -ErrorAction SilentlyContinue))  {
     Write-Host "Net-New Service Fabric Deployment Commencing..."
     $sfDeploy = New-AzResourceGroupDeployment -Name "sf-$clusterName-deploy" -Mode Incremental -ResourceGroupName $rg `
-    -TemplateFile  ".\sf\sfmanaged.bicep" `
+    -TemplateFile  ".\sf\sfmanaged-$environ.bicep" `
     -thumb $thumb  `
     -env $environ `
     -subnetId $subnetId.Id `

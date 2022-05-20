@@ -10,7 +10,7 @@ param lawWorkspaceKey string
 param adminPassword string 
 
 param adminUserName string 
-var userAssignedIdentity = 'uai-msfc-${customerName}-${env}'
+var userAssignedIdentity = 'uai-msfc-id-${env}'
 @description('https://docs.microsoft.com/azure/role-based-access-control/role-definitions-list \'Managed Identity Operator\' read and assign')
 param roleDefinitionId string = 'f1a07417-d97a-45cb-824c-7a7467783830' // Managed Identity Operator
 
@@ -388,7 +388,7 @@ resource paicluster_NT1 'Microsoft.ServiceFabric/managedClusters/nodeTypes@2022-
                       name: 'Microsoft-ServiceFabric/Admin!*[System[(Level=1 or Level=2 or Level=3)]]'
                     }
                     {
-                      name: 'Microsoft-ServiceFabric/Audit!*[System[(Level=1 or Level=2 or Level=3)]]'
+                      name: 'Microsoft-ServiceFabric/Audit!*[System[(Level=1 or Level=2 or Level=3)]w]'
                     }
                     {
                       name: 'Microsoft-ServiceFabric/Operational!*[System[(Level=1 or Level=2 or Level=3)]]'
