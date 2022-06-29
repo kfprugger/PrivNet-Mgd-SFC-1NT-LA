@@ -356,7 +356,7 @@ if (!(Get-AzServiceFabricManagedCluster -ResourceGroupName $rg -Name $clusterNam
     -lawWorkspaceResId $lawWorkspaceResId `
     -clusterSku $clusterSku `
     -numClusterNodes $numClusterNodes `
-    -ErrorAction Stop `
+    -ErrorAction SilentlyContinue `
     -Verbose # -logStoAcct $logStoAcct -appLogStoAcct $appLogStoAcct -subId $subId for later impl.
 
     write-host $sfDeploy.ProvisioningState " at " $sfDeploy.Timestamp
@@ -379,7 +379,7 @@ if (!(Get-AzServiceFabricManagedCluster -ResourceGroupName $rg -Name $clusterNam
     -lawWorkspaceResId $lawWorkspace.ResourceId `
     -clusterSku $clusterSku `
     -numClusterNodes $numClusterNodes `
-    -ErrorAction Stop `
+    -ErrorAction SilentlyContinue `
     -Verbose
 } else {
     $sfDeploy = (Get-AzResourceGroupDeployment  -ResourceGroupName $rg -Name "sf-$clusterName-deploy")
